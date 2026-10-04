@@ -85,6 +85,12 @@ describe('the closing advice does not outrun the registration rows above it', ()
     expect(hint).not.toContain('restart your agent');
   });
 
+  it('does not claim nothing is waiting on a human when a client still needs a hand edit', () => {
+    const hint = restartHint(StepStatus.ALREADY, undefined, ['MCP server (Codex CLI)']);
+    expect(hint).not.toContain('nothing here is waiting on a human');
+    expect(hint).toMatch(/hand-edit step above still needs a human/i);
+  });
+
   it('is unchanged when no other client is left to register', () => {
     expect(restartHint(StepStatus.ALREADY, undefined, [])).toBe(restartHint(StepStatus.ALREADY));
     expect(restartHint(StepStatus.ALREADY)).toContain('the tools are available now');

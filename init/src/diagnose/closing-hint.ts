@@ -25,6 +25,31 @@ export const FEEDBACK_HINT =
   `  ${CLI} feedback --agent --kind <bug|gap|ambiguity|feature_request|improvement> "what happened"   (agents)\n` +
   `  ${CLI} feedback "what worked, what didn't"   (humans)`;
 
+/** User-facing closing copy for `restartHint` — one named home per sentence block. */
+const RestartHintCopy = {
+  DEMO:
+    'Then drive one real flow of your app end to end and report the verdict — that is the install ' +
+    "proving itself, and it is the agent's job, not a separate command.",
+  PROVE:
+    'Then run `npx @reticlehq/server status` — it confirms the app connected, or says exactly why ' +
+    'it has not.',
+  ALREADY_REGISTERED_ALL:
+    'The Reticle MCP server was already registered on this machine, so there is no restart to do ' +
+    'and the tools are available now.',
+  ALREADY_REGISTERED_CLAUDE_HEAD:
+    'The Reticle MCP server was already registered with Claude Code, so there is no restart to ' +
+    'do and the tools are available there now. They are NOT available in the clients whose ' +
+    'step above still needs a hand edit (',
+  ALREADY_REGISTERED_CLAUDE_TAIL: ') until that is done.',
+  CLOSING_ALREADY_NO_MANUAL:
+    'Once it shows a session, drive a flow — that is the install finished. Carry straight on; ' +
+    'nothing here is waiting on a human.',
+  CLOSING_ALREADY_WITH_MANUAL:
+    'Once it shows a session, drive a flow where the tools are already available — that is the ' +
+    'install finished on that client. The hand-edit step above still needs a human for the other ' +
+    'clients named there.',
+} as const;
+
 /**
  * What to say about the dev server.
  *
@@ -90,12 +115,8 @@ export function restartHint(
   // So the close hands the agent the sequence instead. It is deliberately one drive of one real
   // flow ending in a verdict, because an install that ends in "the tools are available" is an
   // install that ends in nothing.
-  const demo =
-    'Then drive one real flow of your app end to end and report the verdict — that is the install ' +
-    "proving itself, and it is the agent's job, not a separate command.";
-  const prove =
-    'Then run `npx @reticlehq/server status` — it confirms the app connected, or says exactly why ' +
-    'it has not.';
+  const demo = RestartHintCopy.DEMO;
+  const prove = RestartHintCopy.PROVE;
   // Nothing registered this run (`--no-mcp`, or a client that needs a manual edit): a restart picks
   // up nothing, so advice about one would be advice about something we did not do.
   if (!wasMcpRegistered(mcpStatus)) return `${dev}\n${demo}\n${prove}`;
@@ -111,19 +132,15 @@ export function restartHint(
     // the last one.
     const availability =
       0 === manualClients.length
-        ? 'The Reticle MCP server was already registered on this machine, so there is no restart to do ' +
-          'and the tools are available now.'
-        : 'The Reticle MCP server was already registered with Claude Code, so there is no restart to ' +
-          'do and the tools are available there now. They are NOT available in the clients whose ' +
-          `step above still needs a hand edit (${manualClients.join(', ')}) until that is done.`;
-    return (
-      `${dev}\n` +
-      `${demo}\n` +
-      `${availability}\n` +
-      `${prove}\n` +
-      'Once it shows a session, drive a flow — that is the install finished. Carry straight on; ' +
-      'nothing here is waiting on a human.'
-    );
+        ? RestartHintCopy.ALREADY_REGISTERED_ALL
+        : RestartHintCopy.ALREADY_REGISTERED_CLAUDE_HEAD +
+          manualClients.join(', ') +
+          RestartHintCopy.ALREADY_REGISTERED_CLAUDE_TAIL;
+    const closing =
+      0 === manualClients.length
+        ? RestartHintCopy.CLOSING_ALREADY_NO_MANUAL
+        : RestartHintCopy.CLOSING_ALREADY_WITH_MANUAL;
+    return `${dev}\n${demo}\n${availability}\n${prove}\n${closing}`;
   }
   return (
     `${dev}\n` +
