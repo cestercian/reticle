@@ -8,10 +8,19 @@
  * — never elapsed milliseconds, which is a statement about the machine.
  */
 
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { awaitArrival, idsAtTarget, type ArrivalScope } from './navigate-arrival.js';
 import type { Session } from '@/portal/session/session.js';
 import type { SessionManager } from '@/portal/session/session-manager.js';
+
+/**
+ * Sessions by id, shared by `drove` and `fakeSessions` so a tab the navigation was dispatched to is
+ * the same object the registry later reports. `awaitArrival` tells "the tab never moved" from "the
+ * page unloaded and reconnected" by that identity, as the real manager does when a HELLO replaces a
+ * session.
+ */
+const knownSessions = new Map<string, Session>();
+beforeEach(() => knownSessions.clear());
 
 /** A minimal Session-shaped object for the successor logic used by `awaitArrival`. */
 function fakeSession(id: string, url: string, openedBefore = false, documentId?: string): Session {
@@ -40,7 +49,7 @@ function fakeSessions(urlsOverTime: { id: string; url: string; documentId?: stri
   sessions: SessionManager;
   looks: () => number;
 } {
-  const sessionsById = new Map<string, Session>();
+  const sessionsById = knownSessions;
   let look = 0;
   let currentSnapshot: Session[] = [];
 
@@ -96,8 +105,13 @@ const TARGET = 'http://localhost:3000/dashboard';
 
 /** The navigation drove `id`, and nothing was sitting on the target beforehand. */
 function drove(id: string): ArrivalScope {
+  let navigatedSession = knownSessions.get(id);
+  if (navigatedSession === undefined) {
+    navigatedSession = fakeSession(id, 'http://localhost:3000/orders');
+    knownSessions.set(id, navigatedSession);
+  }
   return {
-    navigatedSession: fakeSession(id, 'http://localhost:3000/orders'),
+    navigatedSession,
     navigatedFrom: 'http://localhost:3000/orders',
     priorIds: new Set(),
   };
@@ -183,8 +197,7 @@ describe('awaitArrival', () => {
       ],
     ]);
     const scope: ArrivalScope = {
-      navigatedSession: fakeSession('driven', 'http://localhost:3000/orders'),
-      navigatedFrom: 'http://localhost:3000/orders',
+      ...drove('driven'),
       priorIds: new Set(['zombie']),
     };
     await expect(awaitArrival(sessions, TARGET, scope, 300, fakeClock(100))).resolves.toBeNull();
@@ -348,6 +361,68 @@ describe('awaitArrival', () => {
     ).resolves.toEqual({
       sessionId: 'successor',
       landedOn: 'http://localhost:3000/login',
+    });
+  });
+
+  /**
+   * `/login` -> navigate to `/checkout` -> the auth guard sends the tab back to `/login`. The page
+   * unloaded and reconnected, so this is a redirect even though it ended where the tab started.
+   */
+  describe('when the app sends the tab back to where it started', () => {
+    const FROM = 'http://localhost:3000/login';
+    const scopeFor = (navigatedSession: Session): ArrivalScope => ({
+      navigatedSession,
+      navigatedFrom: FROM,
+      priorIds: new Set(),
+    });
+
+    it('reports a successor session that landed back on the starting page as a redirect', async () => {
+      const driven = fakeSession('driven', FROM);
+      const successor = fakeSession('successor', FROM);
+      let live: Session[] = [driven];
+      const sessions = {
+        all: () => live,
+        get: (id: string) => live.find((session) => session.id === id),
+      } as unknown as SessionManager;
+      let now = 0;
+      const clock = {
+        now: () => now,
+        sleep: (ms: number) => {
+          now += ms;
+          live = [successor];
+          return Promise.resolve();
+        },
+      };
+
+      await expect(awaitArrival(sessions, TARGET, scopeFor(driven), 100, clock)).resolves.toEqual({
+        sessionId: 'successor',
+        landedOn: FROM,
+      });
+    });
+
+    it('reports a same-id reconnect on the starting page as a redirect', async () => {
+      const driven = fakeSession('driven', FROM);
+      const reconnected = fakeSession('driven', FROM);
+      const sessions = {
+        all: () => [reconnected],
+        get: () => reconnected,
+      } as unknown as SessionManager;
+
+      await expect(
+        awaitArrival(sessions, TARGET, scopeFor(driven), 0, fakeClock(100)),
+      ).resolves.toEqual({ sessionId: 'driven', landedOn: FROM });
+    });
+
+    it('stays unconfirmed with no landedOn when the very same tab never moved', async () => {
+      const driven = fakeSession('driven', FROM);
+      const sessions = {
+        all: () => [driven],
+        get: () => driven,
+      } as unknown as SessionManager;
+
+      await expect(
+        awaitArrival(sessions, TARGET, scopeFor(driven), 300, fakeClock(100)),
+      ).resolves.toBeNull();
     });
   });
 

@@ -229,7 +229,16 @@ export async function awaitArrival(
   const current = sessions.get(scope.navigatedSession.id);
 
   if (current !== undefined) {
-    if (!samePage(current.url, scope.navigatedFrom) && !samePage(current.url, target)) {
+    // Sitting on `navigatedFrom` means two different things. The very Session we dispatched to is
+    // a tab that has not moved, which is not a redirect. A DIFFERENT Session object under the same
+    // id is a new document that reconnected, so the page unloaded and came back here: an auth guard
+    // bouncing `/checkout` to `/login` while the tab started on `/login`.
+    const unloaded = current !== scope.navigatedSession;
+
+    if (
+      !samePage(current.url, target) &&
+      (unloaded || !samePage(current.url, scope.navigatedFrom))
+    ) {
       return {
         sessionId: current.id,
         landedOn: current.url,
@@ -241,11 +250,9 @@ export async function awaitArrival(
 
   const successor = await awaitDocumentSuccessor(sessions, scope.navigatedSession, 0, clock);
 
-  if (
-    successor !== null &&
-    !samePage(successor.url, target) &&
-    !samePage(successor.url, scope.navigatedFrom)
-  ) {
+  // A successor is a new document by construction, so landing back on `navigatedFrom` is a redirect
+  // that happened to end where the tab started, not a navigation that never moved.
+  if (successor !== null && !samePage(successor.url, target)) {
     return {
       sessionId: successor.id,
       landedOn: successor.url,
