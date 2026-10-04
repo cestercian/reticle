@@ -76,3 +76,17 @@ describe("init's closing advice only asks for a restart when one is actually nee
     }
   });
 });
+
+describe('the closing advice does not outrun the registration rows above it', () => {
+  it('names a client whose step is still manual rather than saying the tools are available now', () => {
+    const hint = restartHint(StepStatus.ALREADY, undefined, ['MCP server (Codex CLI)']);
+    expect(hint).toContain('MCP server (Codex CLI)');
+    expect(hint).not.toContain('the tools are available now');
+    expect(hint).not.toContain('restart your agent');
+  });
+
+  it('is unchanged when no other client is left to register', () => {
+    expect(restartHint(StepStatus.ALREADY, undefined, [])).toBe(restartHint(StepStatus.ALREADY));
+    expect(restartHint(StepStatus.ALREADY)).toContain('the tools are available now');
+  });
+});

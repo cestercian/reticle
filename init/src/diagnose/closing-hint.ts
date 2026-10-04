@@ -60,6 +60,12 @@ export function restartHint(
   mcpStatus: StepStatus | undefined,
   /** The project's own dev command, when package.json named one. */
   devCommand?: string,
+  /**
+   * Titles of other clients' registration steps this run left for the reader (the `⚠` rows). The
+   * Claude Code row says nothing about them, so without these the closing line contradicts the
+   * report above it.
+   */
+  manualClients: readonly string[] = [],
 ): string {
   const dev = `${devServerRestart(devCommand)}.`;
   // NAME THE COMMAND THAT PROVES IT, not one that merely asks.
@@ -100,11 +106,20 @@ export function restartHint(
   // agent, the tools only appear after that" — and an agent believes the output in front of it over
   // whatever its skill file said, so it stops with the project wired and nothing driven.
   if (mcpStatus === StepStatus.ALREADY) {
+    // Only Claude Code's row was read, so "available now" is true for Claude Code and nothing else.
+    // Name the registrations still left, or a Codex user reads two contradicting lines and believes
+    // the last one.
+    const availability =
+      0 === manualClients.length
+        ? 'The Reticle MCP server was already registered on this machine, so there is no restart to do ' +
+          'and the tools are available now.'
+        : 'The Reticle MCP server was already registered with Claude Code, so there is no restart to ' +
+          'do and the tools are available there now. They are NOT available in the clients whose ' +
+          `step above still needs a hand edit (${manualClients.join(', ')}) until that is done.`;
     return (
       `${dev}\n` +
       `${demo}\n` +
-      'The Reticle MCP server was already registered on this machine, so there is no restart to do ' +
-      'and the tools are available now.\n' +
+      `${availability}\n` +
       `${prove}\n` +
       'Once it shows a session, drive a flow — that is the install finished. Carry straight on; ' +
       'nothing here is waiting on a human.'
