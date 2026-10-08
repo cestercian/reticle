@@ -328,8 +328,13 @@ const DIST_ENTRY = join(PACKAGE_ROOT, 'dist', 'index.js');
  * 256,176 B after merging main. Main then gained the keypress key codes, the image-alt check and the
  * unreachable-warning text, and the merge measured 256,653 B; the ceiling is that rounded up to the
  * next hundred.
+ *
+ * Raised to 256,900 when `route.change` started carrying how the URL moved. The page is the only
+ * place that knows whether it was `pushState`, `replaceState`, or the session history moving, so
+ * that vocabulary has to be in the first load. Measured 256,802 B; the ceiling is that rounded up
+ * to the next hundred.
  */
-const MAX_FIRST_LOAD_BYTES = 256_700;
+const MAX_FIRST_LOAD_BYTES = 256_900;
 /*
  * Raised 248_300 -> 248_400 for rail slide impressions: `HudUseData` gained an optional `slide`
  * string, its shape checked in the daemon where it is counted, as control ids already are. The
