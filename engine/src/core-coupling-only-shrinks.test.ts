@@ -140,8 +140,17 @@ const MAX_FILES_IMPORTING_CORE = 45;
  * in core as `ResponseBodyReason`. Inlining the three strings in `unrecordedBodyReason` would keep
  * this number flat by breaking the rule it protects. It joins the import `predicate-eval.ts`
  * already has, so the file count is unmoved.
+ *
+ * 65 -> 67 for the settled field read: `FieldChangeKind` and `FieldChangeField`.
+ *
+ * A controlled checkbox renders by setting the `checked` property, which is not an attribute
+ * mutation, and the field event from the input itself is the user's keystroke. The kind and the
+ * before/after fields that distinguish a render from a restore cross the wire, so they live in
+ * core. Same argument as the route-change names: spelling them in the engine would keep this
+ * number flat by breaking the rule it protects. They join the import `contradiction-evidence.ts`
+ * already has, so the file count is unmoved.
  */
-const MAX_DISTINCT_SYMBOLS = 65;
+const MAX_DISTINCT_SYMBOLS = 67;
 
 /*
  * `node:path`'s dirname, not a hand-rolled one.
