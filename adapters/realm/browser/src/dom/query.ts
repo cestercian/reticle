@@ -258,6 +258,63 @@ function matchesRole(actual: string, queried: string): boolean {
   return false;
 }
 
+const OPTION_ROLE = 'option';
+const HTML_OPTION_TAG = 'option';
+const HTML_SELECT_TAG = 'select';
+/**
+ * The visually-hidden bubble. A control a person can use is larger than a 1×1 clip; that size is
+ * the convention libraries use to keep a native select out of the page.
+ */
+const VISUALLY_HIDDEN_MAX_PX = 1;
+
+function optionNameKey(el: Element): string {
+  return normaliseVisibleText(getAccessibleName(el));
+}
+
+/** A native `<option>` whose owning `<select>` is not a control a person can click. */
+function isHiddenNativeOption(el: HTMLElement): boolean {
+  if (HTML_OPTION_TAG !== el.localName) return false;
+  const select = el.closest(HTML_SELECT_TAG);
+  if (!isSelect(select)) return false;
+  if (!isVisible(select)) return true;
+  const box = select.getBoundingClientRect();
+  return box.width <= VISUALLY_HIDDEN_MAX_PX && box.height <= VISUALLY_HIDDEN_MAX_PX;
+}
+
+/**
+ * Prefer a visible actionable option over a hidden native duplicate.
+ *
+ * Radix (and the same shape elsewhere) keeps a native `<option>` inside a 1×1 clipped `<select>`
+ * so a form can submit, and paints the choice a person clicks as `role="option"` in a portal.
+ * Both compute the same accessible name. The native node is first in the document, so a role+name
+ * anchor resolved to it, replay dispatched a click, and the selected value never moved — the
+ * handler lives on the portal node. The visibility walk does not catch this: the bubble select is
+ * not `display:none` or `aria-hidden`, and an `<option>` has no layout box of its own, so both
+ * come back `visible`.
+ *
+ * Drop the hidden native duplicate only when a namesake remains that is not one. A real `<select>`
+ * the user can see, and a page whose portal is closed, keep their native options. Two portal
+ * options with the same name stay two.
+ *
+ * Returns the original array when nothing is dropped, so a unique match keeps its identity.
+ */
+function preferVisibleActionableOption(role: string, matches: HTMLElement[]): HTMLElement[] {
+  if (OPTION_ROLE !== role || matches.length < 2) return matches;
+  const namesakes = new Map<string, HTMLElement[]>();
+  for (const el of matches) {
+    const key = optionNameKey(el);
+    const group = namesakes.get(key);
+    if (group === undefined) namesakes.set(key, [el]);
+    else group.push(el);
+  }
+  const kept = matches.filter((el) => {
+    if (!isHiddenNativeOption(el)) return true;
+    const group = namesakes.get(optionNameKey(el));
+    return group === undefined || !group.some((other) => !isHiddenNativeOption(other));
+  });
+  return kept.length === matches.length ? matches : kept;
+}
+
 /**
  * Role + name, matched with the same local accessibility engine used to describe results.
  *
@@ -270,11 +327,12 @@ function queryByRoleAndName(
   role: string,
   name: string | undefined,
 ): HTMLElement[] {
-  return elementsUnder(container).filter(
+  const matched = elementsUnder(container).filter(
     (el) =>
       matchesRole(getRole(el), role) &&
       (name === undefined || exactVisibleText(getAccessibleName(el), name)),
   );
+  return preferVisibleActionableOption(role, matched);
 }
 
 function queryByText(container: HTMLElement, value: string, query: ElementQuery): HTMLElement[] {
