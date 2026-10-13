@@ -222,3 +222,13 @@ export function leaseNotConnectedHint(
         (false === evidence.sdkMarker || isRemoteUrl(url) ? PRODUCTION_STUB : '');
   return `${opening}${nuxt}${marker} ${PORT_DIFFERENTIAL}${noSdk} ${REAL_CAUSES} ${RELEASE}`;
 }
+
+/**
+ * The leased page was still loading when the wait ran out, so nothing has failed yet: a slow first
+ * dev compile (Angular, a cold Vite) holds the document and its SDK dials in once it finishes.
+ * Saying "never dialled" here sent agents off debugging an install that works (#1555).
+ */
+export function leaseStillLoadingHint(url: string, waitedMs: number): string {
+  const seconds = Math.round(waitedMs / 1000);
+  return `${url} was still loading after ${seconds}s, so its SDK has not had a chance to connect yet (a slow first dev compile does this). Nothing points at the install: check reticle_sessions in a moment, or release and acquire again once the dev server has finished compiling.`;
+}

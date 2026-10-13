@@ -49,6 +49,8 @@ export interface Lease {
    * document this lease loads next. False when there is no reader, or the page cannot run one.
    */
   injectReader?(): Promise<boolean>;
+  /** Whether the page's document has not reached `complete` yet. False when it cannot be read. */
+  isLoading?(): Promise<boolean>;
 }
 
 /** Default lease time-to-live: a lease untouched for this long is presumed orphaned and reclaimed. */
@@ -675,6 +677,11 @@ export class BrowserPool {
           await page.addInitScript?.(script);
           await page.evaluate(script);
           return true;
+        },
+        isLoading: async (): Promise<boolean> => {
+          if (page.evaluate === undefined) return false;
+          const state = await page.evaluate('document.readyState');
+          return 'string' === typeof state && state !== 'complete';
         },
       };
     } catch (err) {

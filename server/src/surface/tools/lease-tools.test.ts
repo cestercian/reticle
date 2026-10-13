@@ -1599,4 +1599,81 @@ describe('connectOrInject — the lease supplies an SDK only when the page never
       zeroInstall: false,
     });
   });
+
+  // #1555: a slow first dev compile holds the document past the fixed window, and the app's SDK
+  // dials in a moment later. A clock the waits advance stands in for the real 100 ms polls.
+  const clockedWait = (clock: { now: number }) => (isConnected: () => boolean) =>
+    waitForLeasedSession(
+      isConnected,
+      (ms) => {
+        clock.now += ms;
+        return Promise.resolve();
+      },
+      100,
+      100,
+    );
+
+  it('keeps waiting while the page is still loading, so an app that connects at 20.5 s is ready', async () => {
+    const clock = { now: 0 };
+    const connectsAt = 20_500;
+    const lease = {
+      injectReader: () => Promise.resolve(false),
+      isLoading: () => Promise.resolve(clock.now < connectsAt),
+    };
+    expect(await connectOrInject(lease, () => clock.now >= connectsAt, clockedWait(clock))).toEqual(
+      { ready: true, zeroInstall: false },
+    );
+  });
+
+  it('still waits after an injected reader when the page has not finished loading', async () => {
+    const clock = { now: 0 };
+    const connectsAt = 20_500;
+    const lease = {
+      injectReader: () => Promise.resolve(true),
+      isLoading: () => Promise.resolve(clock.now < connectsAt),
+    };
+    expect(await connectOrInject(lease, () => clock.now >= connectsAt, clockedWait(clock))).toEqual(
+      { ready: true, zeroInstall: true },
+    );
+  });
+
+  it('says the page is still loading instead of never dialled, and gives up within its bound', async () => {
+    const clock = { now: 0 };
+    const lease = {
+      injectReader: () => Promise.resolve(false),
+      isLoading: () => Promise.resolve(true),
+    };
+    expect(await connectOrInject(lease, () => false, clockedWait(clock), 3)).toEqual({
+      ready: false,
+      zeroInstall: false,
+      stillLoading: true,
+    });
+    // The first readiness wait plus three loading rounds, each ~10 s.
+    expect(clock.now).toBe(40_000);
+  });
+
+  it('does not wait longer for a page that finished loading', async () => {
+    const clock = { now: 0 };
+    const lease = {
+      injectReader: () => Promise.resolve(false),
+      isLoading: () => Promise.resolve(false),
+    };
+    expect(await connectOrInject(lease, () => false, clockedWait(clock))).toEqual({
+      ready: false,
+      zeroInstall: false,
+    });
+    expect(clock.now).toBe(10_000);
+  });
+
+  it('treats a page whose load state cannot be read as loaded', async () => {
+    const clock = { now: 0 };
+    const lease = {
+      injectReader: () => Promise.resolve(false),
+      isLoading: () => Promise.reject(new Error('page closed')),
+    };
+    expect(await connectOrInject(lease, () => false, clockedWait(clock))).toEqual({
+      ready: false,
+      zeroInstall: false,
+    });
+  });
 });

@@ -46,10 +46,11 @@ class FakePage implements PooledPage {
   }
   disposedScripts = 0;
   evaluated: string[] = [];
+  evaluateResult: unknown = undefined;
   evaluate(script: string): Promise<unknown> {
     this.callOrder.push('evaluate');
     this.evaluated.push(script);
-    return Promise.resolve(undefined);
+    return Promise.resolve(this.evaluateResult);
   }
   addInitScript<Arg>(
     script: ((arg: Arg) => void) | string,
@@ -189,6 +190,29 @@ describe('BrowserPool', () => {
     const lease = await pool.acquire('http://localhost:3000/');
     expect(await lease.injectReader?.()).toBe(false);
     expect(browsers[0]?.contexts[0]?.pages[0]?.evaluated).toEqual([]);
+  });
+
+  // #1555: the lease keeps waiting for a page whose first dev compile is still holding the document.
+  it('reports the page as loading until its document is complete', async () => {
+    const { launch, browsers } = fakeLauncher();
+    const pool = new BrowserPool(launch, { maxContexts: 4, genSessionId: counterIds() });
+    const lease = await pool.acquire('http://localhost:3000/');
+    const page = browsers[0]?.contexts[0]?.pages[0];
+    if (page === undefined) throw new Error('no page');
+    page.evaluateResult = 'loading';
+    expect(await lease.isLoading?.()).toBe(true);
+    page.evaluateResult = 'interactive';
+    expect(await lease.isLoading?.()).toBe(true);
+    page.evaluateResult = 'complete';
+    expect(await lease.isLoading?.()).toBe(false);
+    page.evaluateResult = undefined;
+    expect(await lease.isLoading?.()).toBe(false);
+    expect(page.evaluated).toEqual([
+      'document.readyState',
+      'document.readyState',
+      'document.readyState',
+      'document.readyState',
+    ]);
   });
 
   it('reuses one browser across many leases; each context is isolated', async () => {

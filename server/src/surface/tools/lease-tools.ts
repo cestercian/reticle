@@ -19,7 +19,7 @@ import {
 import { mutationPortFor, type NetworkMutationPort } from '@/portal/input/network-mutation.js';
 import type { Perturbation } from '@reticlehq/core';
 import { z } from 'zod';
-import { leaseNotConnectedHint, type LeaseEvidence } from './lease-hint.js';
+import { leaseNotConnectedHint, leaseStillLoadingHint, type LeaseEvidence } from './lease-hint.js';
 import { probeLeaseAlive, tabHidden } from './lease-readiness.js';
 import { probeSdkMarker } from './gaps/sdk-marker-probe.js';
 import { observeWebDocument } from '@/portal/session/dev-server/served-document.js';
@@ -243,6 +243,8 @@ function sessionParamOf(url: string | undefined): string | undefined {
 
 const LEASE_READY_ATTEMPTS = 100;
 const LEASE_READY_POLL_MS = 100;
+/** Extra readiness waits allowed while the leased page is still loading (each one is ~10 s). */
+const LEASE_LOADING_GRACE_ROUNDS = 3;
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
@@ -267,6 +269,7 @@ export async function acquireLeasedSession(
       release: () => Promise<void>;
       navStatus?: number;
       injectReader?: () => Promise<boolean>;
+      isLoading?: () => Promise<boolean>;
     }>;
     /**
      * The address this lease's page said it could not reach. Optional so a test double need not
@@ -348,14 +351,35 @@ export async function waitForLeasedSession(
  * that stayed silent through the whole readiness wait is the one that gets a reader.
  */
 export async function connectOrInject(
-  lease: { injectReader?: () => Promise<boolean> },
+  lease: { injectReader?: () => Promise<boolean>; isLoading?: () => Promise<boolean> },
   isConnected: () => boolean,
   wait: (isConnected: () => boolean) => Promise<boolean> = waitForLeasedSession,
-): Promise<{ ready: boolean; zeroInstall: boolean }> {
+  graceRounds: number = LEASE_LOADING_GRACE_ROUNDS,
+): Promise<{ ready: boolean; zeroInstall: boolean; stillLoading?: true }> {
   if (await wait(isConnected)) return { ready: true, zeroInstall: false };
-  if (true !== (await lease.injectReader?.())) return { ready: false, zeroInstall: false };
-  const ready = await wait(isConnected);
-  return { ready, zeroInstall: ready };
+  const injected = true === (await lease.injectReader?.());
+  if (injected && (await wait(isConnected))) return { ready: true, zeroInstall: true };
+  // A slow first dev compile can hold the document past both waits, and its app connects a moment
+  // later (#1555). Keep waiting while the page itself says it is still loading, bounded so a page
+  // that never finishes cannot hold the acquire forever.
+  for (let round = 0; round < graceRounds; round++) {
+    if (!(await pageStillLoading(lease))) break;
+    if (await wait(isConnected)) return { ready: true, zeroInstall: injected };
+  }
+  // Re-check right before answering: a connect that landed during the last loading probe counts.
+  if (isConnected()) return { ready: true, zeroInstall: injected };
+  return (await pageStillLoading(lease))
+    ? { ready: false, zeroInstall: false, stillLoading: true }
+    : { ready: false, zeroInstall: false };
+}
+
+/** Whether the leased page reports it has not finished loading. Unknown counts as loaded. */
+async function pageStillLoading(lease: { isLoading?: () => Promise<boolean> }): Promise<boolean> {
+  try {
+    return true === (await lease.isLoading?.());
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -446,7 +470,7 @@ export const LEASE_ACQUIRE_TOOL: ToolDef = {
       ])
       .optional()
       .describe(
-        'Present only when ready is false. sdk_never_dialled ⇒ nothing connected within the wait, so check the install (the app may not embed @reticlehq/core). sdk_stopped_answering ⇒ an SDK did connect and has stopped replying, so the tab is wedged and needs recovering, not reinstalling. tab_hidden ⇒ the SDK answers but its tab is hidden, so timers and animations are throttled and nothing on it verifies; bring the tab to the front, or release and re-acquire.',
+        'Present only when ready is false. sdk_never_dialled ⇒ nothing connected within the wait, so check the install (the app may not embed @reticlehq/core), unless the hint says the page was still loading, in which case it is a slow first compile and checking reticle_sessions shortly is the next step. sdk_stopped_answering ⇒ an SDK did connect and has stopped replying, so the tab is wedged and needs recovering, not reinstalling. tab_hidden ⇒ the SDK answers but its tab is hidden, so timers and animations are throttled and nothing on it verifies; bring the tab to the front, or release and re-acquire.',
       ),
     expiresInMs: z
       .number()
@@ -648,7 +672,8 @@ export const LEASE_ACQUIRE_TOOL: ToolDef = {
       // Resolved rather than assumed: an app that names its own session registers under that name,
       // and the id we hand back has to be the one the agent can actually drive.
       let registeredId: string | undefined;
-      const { ready, zeroInstall } = await connectOrInject(lease, () => {
+      const waitStartedAt = Date.now();
+      const { ready, zeroInstall, stillLoading } = await connectOrInject(lease, () => {
         registeredId = resolveLeasedSessionId(deps.sessions, lease.sessionId);
         return registeredId !== undefined;
       });
@@ -707,7 +732,9 @@ export const LEASE_ACQUIRE_TOOL: ToolDef = {
         ...hintOf(
           ready
             ? undefined
-            : await notConnectedHint(deps, url, pool.dialFailureUrl?.(lease.sessionId)),
+            : true === stillLoading
+              ? leaseStillLoadingHint(url, Date.now() - waitStartedAt)
+              : await notConnectedHint(deps, url, pool.dialFailureUrl?.(lease.sessionId)),
           ready ? await notificationReadBack(pool, lease.sessionId, permissions) : undefined,
         ),
       };
