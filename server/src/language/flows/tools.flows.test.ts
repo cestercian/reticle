@@ -132,6 +132,38 @@ describe('reticle_flow_save / reticle_flow_load handlers', () => {
     expect(res.error).toBeDefined();
   });
 
+  it('19b: reticle_flow_save on a recording still running names it and the stop call', async () => {
+    const recordings = new RecordingStore();
+    recordings.start('checkout', 0);
+    const deps = fakeDeps(memoryFs(), recordings);
+    for (const args of [{ flowName: 'checkout' }, {}]) {
+      const res = (await tool(ReticleTool.FLOW_SAVE).handler(deps, args)) as {
+        error?: string;
+        code?: string;
+      };
+      expect(res.code).toBe(FlowErrorCode.NO_RECORDING);
+      expect(res.error).toContain("'checkout' is still recording");
+      expect(res.error).toContain('reticle_record{action:"stop", recordingName:"checkout"}');
+    }
+  });
+
+  it('19c: a running recording is not blamed when the save names a different one', async () => {
+    const recordings = new RecordingStore();
+    recordings.start('checkout', 0);
+    const deps = fakeDeps(memoryFs(), recordings);
+    const res = (await tool(ReticleTool.FLOW_SAVE).handler(deps, { flowName: 'missing' })) as {
+      error?: string;
+      code?: string;
+    };
+    expect(res.code).toBe(FlowErrorCode.NO_RECORDING);
+    expect(res.error).not.toContain('still recording');
+  });
+
+  it('19d: reticle_flow_save says it saves a stopped recording', () => {
+    expect(tool(ReticleTool.FLOW_SAVE).description).toContain('STOPPED recording');
+    expect(tool(ReticleTool.FLOW_SAVE).description).not.toContain('last/active');
+  });
+
   it('20: reticle_flow_save then reticle_flow_load via handlers round-trips', async () => {
     const recordings = new RecordingStore();
     recordings.saveCompiled(
