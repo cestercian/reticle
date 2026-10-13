@@ -133,27 +133,101 @@ function fieldPayload(
 }
 
 /**
- * The field's value and `checked` before an action is dispatched.
- *
- * Undefined when `el` is not a field. The action reads this first and passes it back to
- * `publishSettledField` after settle, which is the frame after the app's handlers ran.
+ * A field an action is about to touch: its reading before dispatch, and a watch on whether a SCRIPT
+ * wrote the property that reading comes from while the action ran.
  */
-export function readActedField(el: Element): FieldReading | undefined {
-  if (!isField(el)) return undefined;
-  return readingOf(el);
+export interface ActedField {
+  before: FieldReading;
+  /** Take the watch off the element. Idempotent; reads `written` as it stood at the first call. */
+  stop: () => void;
+  /** Whether the app assigned `checked` (or `value`) during the action. */
+  written: () => boolean;
+}
+
+/** The property a settled read compares: `checked` for a checkbox or radio, else `value`. */
+function settledProperty(el: HTMLInputElement | HTMLTextAreaElement): 'checked' | 'value' {
+  return isCheckable(el) ? 'checked' : 'value';
+}
+
+function inheritedDescriptor(el: object, prop: string): PropertyDescriptor | undefined {
+  for (let proto = Object.getPrototypeOf(el) as object | null; proto !== null;) {
+    const found = Object.getOwnPropertyDescriptor(proto, prop);
+    if (found !== undefined) return found;
+    proto = Object.getPrototypeOf(proto) as object | null;
+  }
+  return undefined;
 }
 
 /**
- * Publish a settled field read into the event stream, when one differs from `before`.
+ * Count script writes to one property of `el` until the returned stop runs.
  *
- * No-op until `installField` is running, when the element is gone, or when the settled reading
- * matches the pre-action one — a controlled input React restored did not render. A secret text
- * field is not published either: the values cannot ride the wire, so the event could not be
- * compared and would only look like a change.
+ * The browser's own toggle or keystroke changes the property without calling its setter, so only
+ * the app (React's commit, or a vanilla handler) trips this. React keeps its own value tracker as an
+ * own property on the node; that descriptor is wrapped and put back exactly, never replaced.
  */
-export function publishSettledField(el: Element, before: FieldReading | undefined): void {
+function watchWrites(el: HTMLInputElement | HTMLTextAreaElement, prop: 'checked' | 'value') {
+  const own = Object.getOwnPropertyDescriptor(el, prop);
+  const target = own ?? inheritedDescriptor(el, prop);
+  const get: unknown = target === undefined ? undefined : Reflect.get(target, 'get');
+  const set: unknown = target === undefined ? undefined : Reflect.get(target, 'set');
+  let written = false;
+  const usable = 'function' === typeof get && 'function' === typeof set;
+  if (!usable || false === own?.configurable) {
+    return { stop: () => {}, written: () => written };
+  }
+  Object.defineProperty(el, prop, {
+    configurable: true,
+    enumerable: target?.enumerable ?? false,
+    get(this: unknown): unknown {
+      return Reflect.apply(get, this, []);
+    },
+    set(this: unknown, next: unknown) {
+      written = true;
+      Reflect.apply(set, this, [next]);
+    },
+  });
+  let stopped = false;
+  return {
+    stop: () => {
+      if (stopped) return;
+      stopped = true;
+      if (own === undefined) Reflect.deleteProperty(el, prop);
+      else Object.defineProperty(el, prop, own);
+    },
+    written: () => written,
+  };
+}
+
+/**
+ * The field's reading before an action is dispatched, with a watch on script writes to it.
+ *
+ * Undefined when `el` is not a text field, checkbox or radio. A `<select>` is left out: React
+ * commits one through `option.selected`, so a write to the select itself says nothing either way.
+ * The action calls `stop` once settle has run and passes this back to `publishSettledField`.
+ */
+export function watchActedField(el: Element): ActedField | undefined {
+  if (!isField(el) || el instanceof HTMLSelectElement) return undefined;
+  return { before: readingOf(el), ...watchWrites(el, settledProperty(el)) };
+}
+
+/**
+ * Publish a settled field read into the event stream, when the app itself moved the field.
+ *
+ * Two conditions, both needed. The settled reading must differ from the pre-action one: a
+ * controlled input React restored did not render. And a script must have written the property
+ * during the action: the browser's own toggle or keystroke always differs on an uncontrolled field
+ * (a bare checkbox, `defaultChecked`, react-hook-form, a vanilla page), so a store commit whose
+ * component never re-renders would otherwise read as rendered, which is the case #1357 warns about.
+ *
+ * No-op until `installField` is running, or when the element is gone. A secret text field is not
+ * published either: the values cannot ride the wire, so the event could not be compared.
+ */
+export function publishSettledField(el: Element, acted: ActedField | undefined): void {
   const emit = settledEmit;
-  if (emit === undefined || before === undefined || !isField(el) || !el.isConnected) return;
+  if (acted === undefined) return;
+  acted.stop();
+  if (emit === undefined || !isField(el) || !el.isConnected || !acted.written()) return;
+  const before = acted.before;
   if (isSensitiveField(el) && before.checked === undefined) return;
   const after = readingOf(el);
   if (!readingMoved(before, after)) return;
