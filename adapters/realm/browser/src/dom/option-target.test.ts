@@ -147,6 +147,11 @@ describe('a role query for an option prefers the visible actionable one', () => 
     expect(refsFound).toContain(refs.refFor(requireElement(PORTAL_ID)));
   });
 
+  it('keeps a closed native select with no measured box as a real match', () => {
+    document.body.innerHTML = `<select id="${SELECT_ID}"><option>${APPLE}</option></select>`;
+    expect(appleQuery().count).toBe(1);
+  });
+
   it('still reports two visible portal options as ambiguous', () => {
     document.body.innerHTML =
       '<div role="option" id="a">Apple</div><div role="option" id="b">Apple</div>';

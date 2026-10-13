@@ -273,8 +273,22 @@ export function isHiddenNativeOption(el: HTMLElement): boolean {
   const select = el.closest(HTML_SELECT_TAG);
   if (!isSelect(select)) return false;
   if (!isVisible(select)) return true;
+  return isVisuallyHiddenBox(select);
+}
+
+/**
+ * The bubble's own shape: a measured box no larger than 1×1. A 0×0 box is not enough, because a
+ * closed `<select>` with no layout yet (and every node in jsdom) measures 0×0 and is still the
+ * control a person uses, so its options keep counting for role queries.
+ */
+function isVisuallyHiddenBox(select: HTMLSelectElement): boolean {
   const box = select.getBoundingClientRect();
-  return box.width <= VISUALLY_HIDDEN_MAX_PX && box.height <= VISUALLY_HIDDEN_MAX_PX;
+  return (
+    box.width > 0 &&
+    box.height > 0 &&
+    box.width <= VISUALLY_HIDDEN_MAX_PX &&
+    box.height <= VISUALLY_HIDDEN_MAX_PX
+  );
 }
 
 /**
