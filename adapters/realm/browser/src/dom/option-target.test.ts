@@ -118,7 +118,7 @@ describe('a role query for an option prefers the visible actionable one', () => 
     expect(select.value).toBe(APPLE_VALUE);
   });
 
-  it('keeps a hidden native option when it is the only match', () => {
+  it('refuses a hidden native option when it is the only match', async () => {
     const select = document.createElement('select');
     select.id = SELECT_ID;
     const apple = document.createElement('option');
@@ -127,9 +127,15 @@ describe('a role query for an option prefers the visible actionable one', () => 
     select.append(apple);
     document.body.append(select);
     box(select, VISUALLY_HIDDEN_PX, VISUALLY_HIDDEN_PX);
+    apple.addEventListener('click', () => {
+      select.value = NATIVE_CLICK_VALUE;
+    });
     const found = appleQuery();
-    expect(found.count).toBe(1);
-    expect(found.elements[0]?.ref).toBe(refs.refFor(apple));
+    expect(found.count).toBe(0);
+    await expect(executeAction(refs.refFor(apple), ActionType.CLICK)).rejects.toThrow(
+      /visually-hidden/,
+    );
+    expect(select.value).not.toBe(NATIVE_CLICK_VALUE);
   });
 
   it('does not drop options of a select the user can see', () => {

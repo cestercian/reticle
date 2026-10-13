@@ -267,12 +267,8 @@ const HTML_SELECT_TAG = 'select';
  */
 const VISUALLY_HIDDEN_MAX_PX = 1;
 
-function optionNameKey(el: Element): string {
-  return normaliseVisibleText(getAccessibleName(el));
-}
-
 /** A native `<option>` whose owning `<select>` is not a control a person can click. */
-function isHiddenNativeOption(el: HTMLElement): boolean {
+export function isHiddenNativeOption(el: HTMLElement): boolean {
   if (HTML_OPTION_TAG !== el.localName) return false;
   const select = el.closest(HTML_SELECT_TAG);
   if (!isSelect(select)) return false;
@@ -292,26 +288,16 @@ function isHiddenNativeOption(el: HTMLElement): boolean {
  * not `display:none` or `aria-hidden`, and an `<option>` has no layout box of its own, so both
  * come back `visible`.
  *
- * Drop the hidden native duplicate only when a namesake remains that is not one. A real `<select>`
- * the user can see, and a page whose portal is closed, keep their native options. Two portal
- * options with the same name stay two.
+ * Drop every native `<option>` whose `<select>` is not a control a person can use. When a portal
+ * duplicate exists it is the one replay should target; when the dropdown is closed and only the
+ * hidden native node remains, resolving or clicking it still cannot change the selection, so the
+ * match is refused rather than reported as success. A real `<select>` the user can see is unchanged.
  *
  * Returns the original array when nothing is dropped, so a unique match keeps its identity.
  */
 function preferVisibleActionableOption(role: string, matches: HTMLElement[]): HTMLElement[] {
-  if (OPTION_ROLE !== role || matches.length < 2) return matches;
-  const namesakes = new Map<string, HTMLElement[]>();
-  for (const el of matches) {
-    const key = optionNameKey(el);
-    const group = namesakes.get(key);
-    if (group === undefined) namesakes.set(key, [el]);
-    else group.push(el);
-  }
-  const kept = matches.filter((el) => {
-    if (!isHiddenNativeOption(el)) return true;
-    const group = namesakes.get(optionNameKey(el));
-    return group === undefined || !group.some((other) => !isHiddenNativeOption(other));
-  });
+  if (OPTION_ROLE !== role) return matches;
+  const kept = matches.filter((el) => !isHiddenNativeOption(el));
   return kept.length === matches.length ? matches : kept;
 }
 
