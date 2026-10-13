@@ -42,13 +42,34 @@ describe('settled field read after an action', () => {
     return input;
   }
 
-  it('emits a settled checkbox reading when checked survives the frame', async () => {
+  const settledOf = (events: Emitted[]): Emitted[] =>
+    events.filter((event) => event.data[FieldChangeField.KIND] === FieldChangeKind.SETTLED);
+
+  /**
+   * #1357: the browser's own toggle always differs, so on an uncontrolled checkbox it says nothing
+   * about a render. A store commit whose component never re-renders has to stay a contradiction.
+   */
+  it('emits no settled reading for an uncontrolled checkbox the browser toggled itself', async () => {
     const events = watch();
     const input = box();
     await executeAction(refs.refFor(input), ActionType.CHECK, {});
-    const settled = events.filter(
-      (event) => event.data[FieldChangeField.KIND] === FieldChangeKind.SETTLED,
-    );
+    expect(input.checked).toBe(true);
+    expect(settledOf(events)).toHaveLength(0);
+    // The raw change still goes out, and the engine does not count that as a render.
+    expect(
+      events.some((event) => event.data[FieldChangeField.KIND] === FieldChangeKind.CHANGE),
+    ).toBe(true);
+  });
+
+  it('emits a settled checkbox reading when the app writes checked during the action', async () => {
+    const events = watch();
+    const input = box();
+    input.addEventListener('change', () => {
+      // What a controlled component's commit does: React assigns the property.
+      input.checked = true;
+    });
+    await executeAction(refs.refFor(input), ActionType.CHECK, {});
+    const settled = settledOf(events);
     expect(settled).toHaveLength(1);
     expect(settled[0]?.type).toBe(EventType.FIELD_CHANGE);
     expect(settled[0]?.data[FieldChangeField.CHECKED]).toBe(true);
@@ -63,21 +84,59 @@ describe('settled field read after an action', () => {
     });
     await executeAction(refs.refFor(input), ActionType.CHECK, {});
     expect(input.checked).toBe(false);
-    expect(
-      events.filter((event) => event.data[FieldChangeField.KIND] === FieldChangeKind.SETTLED),
-    ).toHaveLength(0);
+    expect(settledOf(events)).toHaveLength(0);
   });
 
-  it('emits a settled value when a text field keeps what was filled', async () => {
+  it('emits no settled value for an uncontrolled text field that only holds what was filled', async () => {
     const events = watch();
     const input = document.createElement('input');
     input.setAttribute('data-testid', 'title');
     document.body.appendChild(input);
     await executeAction(refs.refFor(input), ActionType.FILL, { value: 'hi' });
-    const settled = events.find(
-      (event) => event.data[FieldChangeField.KIND] === FieldChangeKind.SETTLED,
-    );
-    expect(settled?.data[FieldChangeField.VALUE]).toBe('hi');
+    expect(input.value).toBe('hi');
+    expect(settledOf(events)).toHaveLength(0);
+  });
+
+  it('emits a settled value when the app writes the filled text back', async () => {
+    const events = watch();
+    const input = document.createElement('input');
+    input.setAttribute('data-testid', 'title');
+    input.addEventListener('input', () => {
+      input.value = input.value.toUpperCase();
+    });
+    document.body.appendChild(input);
+    await executeAction(refs.refFor(input), ActionType.FILL, { value: 'hi' });
+    const settled = settledOf(events)[0];
+    expect(settled?.data[FieldChangeField.VALUE]).toBe('HI');
     expect(settled?.data[FieldChangeField.PREVIOUS]).toBe('');
+  });
+
+  it('puts back an own property descriptor the app had on the field', async () => {
+    watch();
+    const input = box();
+    const proto = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'checked');
+    const tracker: PropertyDescriptor = {
+      configurable: true,
+      get(this: HTMLInputElement) {
+        return proto?.get?.call(this) as boolean;
+      },
+      set(this: HTMLInputElement, next: boolean) {
+        proto?.set?.call(this, next);
+      },
+    };
+    Object.defineProperty(input, 'checked', tracker);
+    await executeAction(refs.refFor(input), ActionType.CHECK, {});
+    const after = Object.getOwnPropertyDescriptor(input, 'checked');
+    expect(after === undefined ? undefined : Reflect.get(after, 'set')).toBe(
+      Reflect.get(tracker, 'set'),
+    );
+    expect(input.checked).toBe(true);
+  });
+
+  it('leaves no own property behind on a plain field', async () => {
+    watch();
+    const input = box();
+    await executeAction(refs.refFor(input), ActionType.CHECK, {});
+    expect(Object.getOwnPropertyDescriptor(input, 'checked')).toBeUndefined();
   });
 });

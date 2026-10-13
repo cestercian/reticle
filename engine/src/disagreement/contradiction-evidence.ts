@@ -179,7 +179,9 @@ export function isSamePathnameReplace(event: ReticleEvent): boolean {
  * property, and counting it would treat a box React immediately reverted as rendered.
  *
  * A settled read carries the value from before the action beside the value after the handlers
- * ran. The screen moved only when those two differ.
+ * ran. The browser only sends one when the app itself wrote the property during the action, so an
+ * uncontrolled field the browser toggled on its own never counts. The screen moved only when the
+ * two readings differ.
  */
 export function settledFieldRendered(event: ReticleEvent): boolean {
   if (event.type !== EventType.FIELD_CHANGE) return false;
@@ -192,6 +194,23 @@ export function settledFieldRendered(event: ReticleEvent): boolean {
   const value = event.data[FieldChangeField.VALUE];
   const previous = event.data[FieldChangeField.PREVIOUS];
   return 'string' === typeof value && 'string' === typeof previous && value !== previous;
+}
+
+/**
+ * Did this event show the screen moving, for the state-vs-render rule? A DOM node added, removed or
+ * changed, route movement (a navigation IS a render), or a field the app itself wrote to a new
+ * value (`settledFieldRendered`). The input event's own field change does not count: that is the
+ * keystroke or the browser's own toggle, true of a component that never re-rendered.
+ */
+export function screenMoved(event: ReticleEvent): boolean {
+  return (
+    event.type === EventType.DOM_ADDED ||
+    event.type === EventType.DOM_REMOVED ||
+    event.type === EventType.DOM_ATTR ||
+    event.type === EventType.DOM_TEXT ||
+    event.type === EventType.ROUTE_CHANGE ||
+    settledFieldRendered(event)
+  );
 }
 
 /**
