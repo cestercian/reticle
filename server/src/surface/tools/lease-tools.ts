@@ -470,7 +470,7 @@ export const LEASE_ACQUIRE_TOOL: ToolDef = {
       ])
       .optional()
       .describe(
-        'Present only when ready is false. sdk_never_dialled ⇒ nothing connected within the wait, so check the install (the app may not embed @reticlehq/core), unless the hint says the page was still loading, in which case it is a slow first compile and checking reticle_sessions shortly is the next step. sdk_stopped_answering ⇒ an SDK did connect and has stopped replying, so the tab is wedged and needs recovering, not reinstalling. tab_hidden ⇒ the SDK answers but its tab is hidden, so timers and animations are throttled and nothing on it verifies; bring the tab to the front, or release and re-acquire.',
+        'Present only when ready is false. sdk_never_dialled ⇒ nothing connected within the wait, so check the install (the app may not embed @reticlehq/core), unless the hint says the page was still loading, in which case it is a slow first compile and checking reticle_session { action: "list" } shortly is the next step. sdk_stopped_answering ⇒ an SDK did connect and has stopped replying, so the tab is wedged and needs recovering, not reinstalling. tab_hidden ⇒ the SDK answers but its tab is hidden, so timers and animations are throttled and nothing on it verifies; bring the tab to the front, or release and re-acquire.',
       ),
     expiresInMs: z
       .number()

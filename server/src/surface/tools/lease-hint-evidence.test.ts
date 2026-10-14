@@ -107,6 +107,8 @@ describe('leaseStillLoadingHint', () => {
   it('says how long the page was still loading and does not blame the install', () => {
     const hint = leaseStillLoadingHint('http://localhost:4200/', 40_200);
     expect(hint).toContain('http://localhost:4200/ was still loading after 40s');
-    expect(hint).not.toMatch(/never dialled|init/);
+    expect(hint).toContain('Its SDK did not have time to connect.');
+    expect(hint).toContain('reticle_session { action: "list" }');
+    expect(hint).not.toMatch(/never dialled|init|reticle_sessions/);
   });
 });

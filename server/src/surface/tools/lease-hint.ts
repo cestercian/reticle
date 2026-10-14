@@ -230,5 +230,8 @@ export function leaseNotConnectedHint(
  */
 export function leaseStillLoadingHint(url: string, waitedMs: number): string {
   const seconds = Math.round(waitedMs / 1000);
-  return `${url} was still loading after ${seconds}s, so its SDK has not had a chance to connect yet (a slow first dev compile does this). Nothing points at the install: check reticle_sessions in a moment, or release and acquire again once the dev server has finished compiling.`;
+  return (
+    `${url} was still loading after ${seconds}s. Its SDK did not have time to connect. ` +
+    'Check reticle_session { action: "list" } again soon, or release and acquire again after the dev server compiles.'
+  );
 }
